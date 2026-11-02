@@ -65,7 +65,43 @@ async function punchMaster(){if(busy)return;busy=true;try{setHome('MASTER QR mil
 function formatPunchIST(value){if(!value||value==='—')return '—';const d=new Date(value);if(Number.isNaN(d.getTime()))return String(value);return new Intl.DateTimeFormat('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}).format(d)}
 async function loadAttendanceData(){if(!selectedId)return;try{const r=await api('status',{employeeId:selectedId}),p=r.punches||{};$('vIn').textContent=formatPunchIST(p.IN);$('vLunchOut').textContent=formatPunchIST(p.LUNCH_OUT);$('vLunchIn').textContent=formatPunchIST(p.LUNCH_IN);$('vOut').textContent=formatPunchIST(p.FINAL_OUT||p.MARK_OUT);$('shiftName').textContent='TODAY';$('workHours').textContent=r.workingHours||'—';$('otHours').textContent=r.overtime||'—';updateActionButtons(r.lastAction||'')}catch(e){setAtt('Attendance status unavailable: '+e.message)}}
 function updateActionButtons(last){$('btnIn').disabled=!['','MARK OUT','OUT 2'].includes(last);$('btnOut').disabled=!['IN','LUNCH IN','IN 2','IN 3'].includes(last);$('btnLunchOut').disabled=last!=='IN';$('btnLunchIn').disabled=last!=='LUNCH OUT'}
-async function manualPunch(button){if(busy||!selectedId)return;busy=true;try{setAtt('GPS verify ho raha hai…');const p=await gps();const r=await api('manual',{employeeId:selectedId,buttonAction:button,latitude:p.lat,longitude:p.lon,deviceId:getDeviceId(),timestamp:new Date().toISOString(),punchId:newId()});setAtt('✓ SERVER CONFIRMED: '+(r.message||'Punch saved')+'\nAction: '+(r.action||button)+(r.distance!==undefined?'\nDistance: '+r.distance+' m':'')+'\nAttendance summary updating…');loadAttendanceData()}catch(e){setAtt('Punch confirmation nahi mila: '+e.message+'\nDobara button na dabayein; pehle sheet/status check karein.')}finally{busy=false}}
+async function manualPunch(button){
+  if(busy||!selectedId)return;
+  busy=true;
+  try{
+    setAtt('GPS verify ho raha hai…');
+    const p=await gps();
+    const r=await api('manual',{
+      employeeId:selectedId,
+      buttonAction:button,
+      latitude:p.lat,
+      longitude:p.lon,
+      deviceId:getDeviceId(),
+      timestamp:new Date().toISOString(),
+      punchId:newId()
+    });
+
+    const action=String(r.action||button).toUpperCase();
+    const punchTime=r.time||new Date().toLocaleTimeString();
+
+    // Update the visible attendance immediately from the confirmed punch.
+    if(action==='IN') $('vIn').textContent=punchTime;
+    if(action==='LUNCH OUT') $('vLunchOut').textContent=punchTime;
+    if(action==='LUNCH IN') $('vLunchIn').textContent=punchTime;
+    if(action==='MARK OUT'||action==='FINAL OUT') $('vOut').textContent=punchTime;
+
+    updateActionButtons(action);
+    setAtt('✓ PUNCH SUCCESSFUL\n'+(r.message||'Attendance saved')+
+      '\nAction: '+action+'\nTime: '+punchTime+
+      (r.distance!==undefined?'\nDistance: '+r.distance+' m':''));
+
+  }catch(e){
+    setAtt('Punch confirmation nahi mila: '+e.message+
+      '\nDobara button na dabayein; pehle sheet/status check karein.');
+  }finally{
+    busy=false;
+  }
+}
 function syncQueue(){updateCounts();setHome('GitHub TEST build mein offline punch sync abhi enable nahi hai. Punch ke liye internet required hai.')}
 window.addEventListener('online',()=>{updateCounts();loadEmployees()});window.addEventListener('offline',()=>{updateCounts();setHome('Internet offline. Punch ke liye connection chahiye.')});
 window.addEventListener('load',()=>{updateCounts();updateClock();setInterval(updateClock,15000);$('device').textContent='Device ID: '+getDeviceId();loadEmployees();warmGPS();showCameraMessage('Camera start karne ke liye Restart Camera dabayein.')});
