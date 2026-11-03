@@ -35,7 +35,7 @@
 const API_URL='https://script.google.com/macros/s/AKfycbwTMUEWcl-FfKVdPVD0ecejz5NaCXXWOqDBYfTg2e92may5OZmelrFXemUwSt7cFBGH/exec';
 const MASTER_CODES=['MASTER_QR','MASTER_REGISTER'];
 const DEVICE_KEY='BP_DEVICE_ID_V2',QUEUE_KEY='BP_OFFLINE_PUNCHES_V2';
-let employees=[],selectedId='',selectedName='',scanner=null,busy=false,lastScanText='',lastScanAt=0,manualMode=false,scannerStarting=false;
+let employees=[],selectedId='',selectedName='',scanner=null,busy=false,lastScanText='',lastScanAt=0,manualMode=false,scannerStarting=false,currentLastAction='';
 const $=id=>document.getElementById(id);
 function setHome(s){$('homeStatus').textContent=s} function setAtt(s){$('attStatus').textContent=s}
 function randomId(){try{return [...crypto.getRandomValues(new Uint8Array(16))].map(x=>x.toString(16).padStart(2,'0')).join('')}catch(e){return Date.now().toString(36)+'-'+Math.random().toString(36).slice(2)}}
@@ -64,9 +64,14 @@ async function gps(){if(gpsCache&&Date.now()-gpsCacheAt<=10000)return gpsCache;r
 async function punchMaster(){if(busy)return;busy=true;try{setHome('MASTER QR mila. GPS verify ho raha hai…');const p=await gps();$('gpsState').textContent='● GPS captured';$('gpsDetail').textContent='Accuracy '+Math.round(p.accuracy)+' m';const r=await api('master',{deviceId:getDeviceId(),latitude:p.lat,longitude:p.lon,timestamp:new Date().toISOString(),punchId:newId()});setHome('✓ SERVER CONFIRMED\n'+(r.message||'Punch saved')+'\nEmployee: '+(r.employeeId||'registered mobile')+'\nAction: '+(r.action||'AUTO')+(r.distance!==undefined?'\nDistance: '+r.distance+' m':''))}catch(e){setHome('Punch save nahi hua: '+e.message)}finally{busy=false}}
 function formatPunchIST(value){if(!value||value==='—')return '—';const d=new Date(value);if(Number.isNaN(d.getTime()))return String(value);return new Intl.DateTimeFormat('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}).format(d)}
 async function loadAttendanceData(){if(!selectedId)return;try{const r=await api('status',{employeeId:selectedId}),p=r.punches||{};$('vIn').textContent=formatPunchIST(p.IN);$('vLunchOut').textContent=formatPunchIST(p.LUNCH_OUT);$('vLunchIn').textContent=formatPunchIST(p.LUNCH_IN);$('vOut').textContent=formatPunchIST(p.FINAL_OUT||p.MARK_OUT);$('shiftName').textContent='TODAY';$('workHours').textContent=r.workingHours||'—';$('otHours').textContent=r.overtime||'—';updateActionButtons(r.lastAction||'')}catch(e){setAtt('Attendance status unavailable: '+e.message)}}
-function updateActionButtons(last){$('btnIn').disabled=!['','MARK OUT','OUT 2'].includes(last);$('btnOut').disabled=!['IN','LUNCH IN','IN 2','IN 3'].includes(last);$('btnLunchOut').disabled=last!=='IN';$('btnLunchIn').disabled=last!=='LUNCH OUT'}
+function updateActionButtons(last){currentLastAction=String(last||'').toUpperCase();$('btnIn').disabled=!['','MARK OUT','OUT 2'].includes(currentLastAction);$('btnOut').disabled=!['IN','LUNCH IN','IN 2','IN 3'].includes(currentLastAction);$('btnLunchOut').disabled=currentLastAction!=='IN';$('btnLunchIn').disabled=currentLastAction!=='LUNCH OUT'}
+function expectedActionForButton(button,last){if(button==='IN')return last===''?'IN':last==='MARK OUT'?'IN 2':last==='OUT 2'?'IN 3':'';if(button==='OUT')return ['IN','LUNCH IN'].includes(last)?'MARK OUT':last==='IN 2'?'OUT 2':last==='IN 3'?'FINAL OUT':'';if(button==='LUNCH OUT'&&last==='IN')return 'LUNCH OUT';if(button==='LUNCH IN'&&last==='LUNCH OUT')return 'LUNCH IN';return ''}
+function waitMs(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
+async function recoverPunchConfirmation(expected){if(!expected||!navigator.onLine)return false;for(let attempt=0;attempt<3;attempt++){if(attempt>0)await waitMs(2500);try{const r=await api('status',{employeeId:selectedId});const last=String(r.lastAction||'').toUpperCase();if(last===expected){updateActionButtons(last);return true}}catch(e){/* Status check will be retried; never resend the punch. */}}return false;}
 async function manualPunch(button){
   if(busy||!selectedId)return;
+  const previousLastAction=currentLastAction;
+  const expectedAction=expectedActionForButton(button,previousLastAction);
   busy=true;
   try{
     setAtt('GPS verify ho raha hai…');
@@ -96,8 +101,14 @@ async function manualPunch(button){
       (r.distance!==undefined?'\nDistance: '+r.distance+' m':''));
 
   }catch(e){
-    setAtt('Punch confirmation nahi mila: '+e.message+
-      '\nDobara button na dabayein; pehle sheet/status check karein.');
+    setAtt('Server response late hai. Punch status verify kar rahe hain…');
+    const recovered=await recoverPunchConfirmation(expectedAction);
+    if(recovered){
+      setAtt('✓ PUNCH SUCCESSFULLY SAVED\nServer response late tha, lekin status check mein punch mil gaya.\nAction: '+expectedAction+'\nAb button dobara dabane ki zarurat nahi hai.');
+    }else{
+      setAtt('Punch confirmation abhi nahi mila: '+e.message+
+        '\nPunch dobara na dabayein. Attendance Sheet/status check karein.');
+    }
   }finally{
     busy=false;
   }
