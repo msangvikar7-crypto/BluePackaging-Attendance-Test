@@ -58,7 +58,18 @@ async function stopScanner(){try{if(scanner&&scanner.isScanning){await scanner.s
 function onScanSuccess(t){const v=String(t||'').trim(),n=Date.now();if(!v||(v===lastScanText&&n-lastScanAt<2500))return;lastScanText=v;lastScanAt=n;handleScan(v)}
 async function handleScan(v){if(busy||manualMode)return;if(MASTER_CODES.some(x=>x.toUpperCase()===v.toUpperCase())){await punchMaster();return}const e=employees.find(x=>String(x.id).toUpperCase()===v.toUpperCase());if(e){selectedId=e.id;selectedName=e.name;$('employee').value=e.id;setHome('Employee QR recognized: '+e.name+'. Punch ke liye Admin MASTER QR scan karein.')}else setHome('Unknown QR: '+v)}
 let gpsCache=null,gpsCacheAt=0,gpsWarmPromise=null;
-function requestFreshGPS(){return new Promise((resolve,reject)=>{if(!navigator.geolocation)return reject(Error('GPS unavailable'));navigator.geolocation.getCurrentPosition(p=>{const v={lat:p.coords.latitude,lon:p.coords.longitude,accuracy:p.coords.accuracy};gpsCache=v;gpsCacheAt=Date.now();resolve(v)},e=>reject(Error(e.code===1?'Location permission allow karein.':e.code===2?'Location unavailable.':e.code===3?'GPS timeout.':e.message||'GPS error')),{enableHighAccuracy:true,timeout:12000,maximumAge:10000})})}
+function requestFreshGPS(){
+  return new Promise((resolve,reject)=>{
+    if(!navigator.geolocation)return reject(Error('GPS unavailable'));
+    const fail=e=>reject(Error(e.code===1?'Location permission allow karein.':e.code===2?'Location unavailable.':e.code===3?'GPS timeout.':e.message||'GPS error'));
+    const save=p=>{const v={lat:p.coords.latitude,lon:p.coords.longitude,accuracy:p.coords.accuracy};gpsCache=v;gpsCacheAt=Date.now();resolve(v)};
+    // First give the phone GPS 20 seconds for a precise location.
+    navigator.geolocation.getCurrentPosition(save,()=>{
+      // If precise GPS times out, try a normal location fix once.
+      navigator.geolocation.getCurrentPosition(save,fail,{enableHighAccuracy:false,timeout:12000,maximumAge:30000});
+    },{enableHighAccuracy:true,timeout:20000,maximumAge:10000});
+  });
+}
 function warmGPS(){if(!navigator.geolocation||gpsWarmPromise)return gpsWarmPromise;gpsWarmPromise=requestFreshGPS().catch(()=>null).finally(()=>{gpsWarmPromise=null});return gpsWarmPromise}
 async function gps(){if(gpsCache&&Date.now()-gpsCacheAt<=10000)return gpsCache;return await requestFreshGPS()}
 async function punchMaster(){if(busy)return;busy=true;try{setHome('MASTER QR mila. GPS verify ho raha hai…');const p=await gps();$('gpsState').textContent='● GPS captured';$('gpsDetail').textContent='Accuracy '+Math.round(p.accuracy)+' m';const r=await api('master',{deviceId:getDeviceId(),latitude:p.lat,longitude:p.lon,timestamp:new Date().toISOString(),punchId:newId()});setHome('✓ SERVER CONFIRMED\n'+(r.message||'Punch saved')+'\nEmployee: '+(r.employeeId||'registered mobile')+'\nAction: '+(r.action||'AUTO')+(r.distance!==undefined?'\nDistance: '+r.distance+' m':''))}catch(e){setHome('Punch save nahi hua: '+e.message)}finally{busy=false}}
