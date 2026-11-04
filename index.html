@@ -22,11 +22,11 @@
  <div class="card"><div class="employee-banner"><div class="avatar">♙</div><div style="min-width:0"><div class="emp-id" id="attEmpId">EMP---</div><div class="emp-name" id="attEmpName">Employee</div></div><button class="change" onclick="goHome()">CHANGE</button></div>
  <div class="actions">
   <button id="btnIn" class="punch in" onclick="manualPunch('IN')"><span class="ico">↪</span><strong>IN</strong><small>Start / Resume Work</small></button>
-  <button id="btnOut" class="punch out" onclick="manualPunch('OUT')"><span class="ico">↗</span><strong>OUT</strong><small>End / Pause Work</small></button>
+  <button id="btnOut" class="punch out" onclick="manualPunch('FINAL OUT')"><span class="ico">↗</span><strong>FINAL OUT</strong><small>End Duty</small></button>
   <button id="btnLunchOut" class="punch lout" onclick="manualPunch('LUNCH OUT')"><span class="ico">☕</span><strong>LUNCH OUT</strong><small>Start Lunch</small></button>
   <button id="btnLunchIn" class="punch lin" onclick="manualPunch('LUNCH IN')"><span class="ico">☕</span><strong>LUNCH IN</strong><small>Back from Lunch</small></button>
  </div><div id="attStatus" class="status">Select an action.</div></div>
- <div class="card"><div class="status-head"><b class="section-title" style="margin:0">TODAY'S ATTENDANCE</b><span class="shift-pill" id="shiftName">SHIFT</span></div><div class="punch-grid"><div class="punch-cell"><small>FIRST IN</small><b id="vIn">—</b></div><div class="punch-cell"><small>LUNCH OUT</small><b id="vLunchOut" style="color:#d98000">—</b></div><div class="punch-cell"><small>LUNCH IN</small><b id="vLunchIn" style="color:#7435d0">—</b></div><div class="punch-cell"><small>LAST OUT</small><b id="vOut" style="color:#d83242">—</b></div></div><div class="summary"><div><small>WORKING HOURS</small><b id="workHours">—</b></div><div><small>OVERTIME</small><b id="otHours">—</b></div></div><div class="hint">Working hours and OT refresh after the attendance summary is recalculated.</div></div>
+ <div class="card"><div class="status-head"><b class="section-title" style="margin:0">TODAY'S ATTENDANCE</b><span class="shift-pill" id="shiftName">SHIFT</span></div><div class="punch-grid"><div class="punch-cell"><small>FIRST IN</small><b id="vIn">—</b></div><div class="punch-cell"><small>LUNCH OUT</small><b id="vLunchOut" style="color:#d98000">—</b></div><div class="punch-cell"><small>LUNCH IN</small><b id="vLunchIn" style="color:#7435d0">—</b></div><div class="punch-cell"><small>LAST OUT</small><b id="vOut" style="color:#d83242">—</b></div></div><div class="summary"><div><small>WORKING HOURS</small><b id="workHours">—</b></div><div><small>OVERTIME</small><b id="otHours">—</b></div></div><div class="hint">Working hours and OT refresh after the attendance summary is recalculated. New duty cycle: IN → LUNCH OUT → LUNCH IN → FINAL OUT.</div></div>
  <div class="foot">Blue Packaging • Secure Attendance</div>
 </section>
 </main>
@@ -64,8 +64,21 @@ async function gps(){if(gpsCache&&Date.now()-gpsCacheAt<=10000)return gpsCache;r
 async function punchMaster(){if(busy)return;busy=true;try{setHome('MASTER QR mila. GPS verify ho raha hai…');const p=await gps();$('gpsState').textContent='● GPS captured';$('gpsDetail').textContent='Accuracy '+Math.round(p.accuracy)+' m';const r=await api('master',{deviceId:getDeviceId(),latitude:p.lat,longitude:p.lon,timestamp:new Date().toISOString(),punchId:newId()});setHome('✓ SERVER CONFIRMED\n'+(r.message||'Punch saved')+'\nEmployee: '+(r.employeeId||'registered mobile')+'\nAction: '+(r.action||'AUTO')+(r.distance!==undefined?'\nDistance: '+r.distance+' m':''))}catch(e){setHome('Punch save nahi hua: '+e.message)}finally{busy=false}}
 function formatPunchIST(value){if(!value||value==='—')return '—';const d=new Date(value);if(Number.isNaN(d.getTime()))return String(value);return new Intl.DateTimeFormat('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}).format(d)}
 async function loadAttendanceData(){if(!selectedId)return;try{const r=await api('status',{employeeId:selectedId}),p=r.punches||{};$('vIn').textContent=formatPunchIST(p.IN);$('vLunchOut').textContent=formatPunchIST(p.LUNCH_OUT);$('vLunchIn').textContent=formatPunchIST(p.LUNCH_IN);$('vOut').textContent=formatPunchIST(p.FINAL_OUT||p.MARK_OUT);$('shiftName').textContent='TODAY';$('workHours').textContent=r.workingHours||'—';$('otHours').textContent=r.overtime||'—';updateActionButtons(r.lastAction||'')}catch(e){setAtt('Attendance status unavailable: '+e.message)}}
-function updateActionButtons(last){currentLastAction=String(last||'').toUpperCase();$('btnIn').disabled=!['','MARK OUT','OUT 2'].includes(currentLastAction);$('btnOut').disabled=!['IN','LUNCH IN','IN 2','IN 3'].includes(currentLastAction);$('btnLunchOut').disabled=currentLastAction!=='IN';$('btnLunchIn').disabled=currentLastAction!=='LUNCH OUT'}
-function expectedActionForButton(button,last){if(button==='IN')return last===''?'IN':last==='MARK OUT'?'IN 2':last==='OUT 2'?'IN 3':'';if(button==='OUT')return ['IN','LUNCH IN'].includes(last)?'MARK OUT':last==='IN 2'?'OUT 2':last==='IN 3'?'FINAL OUT':'';if(button==='LUNCH OUT'&&last==='IN')return 'LUNCH OUT';if(button==='LUNCH IN'&&last==='LUNCH OUT')return 'LUNCH IN';return ''}
+function updateActionButtons(last){
+  currentLastAction=String(last||'').toUpperCase();
+  const closed=['','FINAL OUT','MARK OUT','OUT','OUT 2','OUT 3','EARLY OUT','LEFT AFTER LUNCH'];
+  $('btnIn').disabled=!closed.includes(currentLastAction);
+  $('btnOut').disabled=!['IN','LUNCH IN','IN 2','IN 3'].includes(currentLastAction);
+  $('btnLunchOut').disabled=(currentLastAction!=='IN');
+  $('btnLunchIn').disabled=(currentLastAction!=='LUNCH OUT');
+}
+function expectedActionForButton(button,last){
+  if(button==='IN') return ['','FINAL OUT','MARK OUT','OUT','OUT 2','OUT 3','EARLY OUT','LEFT AFTER LUNCH'].includes(last)?'IN':'';
+  if(button==='FINAL OUT') return ['IN','LUNCH IN','IN 2','IN 3'].includes(last)?'FINAL OUT':'';
+  if(button==='LUNCH OUT'&&last==='IN') return 'LUNCH OUT';
+  if(button==='LUNCH IN'&&last==='LUNCH OUT') return 'LUNCH IN';
+  return '';
+}
 function waitMs(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
 async function recoverPunchConfirmation(expected){if(!expected||!navigator.onLine)return false;for(let attempt=0;attempt<3;attempt++){if(attempt>0)await waitMs(2500);try{const r=await api('status',{employeeId:selectedId});const last=String(r.lastAction||'').toUpperCase();if(last===expected){updateActionButtons(last);return true}}catch(e){/* Status check will be retried; never resend the punch. */}}return false;}
 async function manualPunch(button){
@@ -93,7 +106,7 @@ async function manualPunch(button){
     if(action==='IN') $('vIn').textContent=punchTime;
     if(action==='LUNCH OUT') $('vLunchOut').textContent=punchTime;
     if(action==='LUNCH IN') $('vLunchIn').textContent=punchTime;
-    if(action==='MARK OUT'||action==='FINAL OUT') $('vOut').textContent=punchTime;
+    if(action==='MARK OUT'||action==='OUT'||action==='FINAL OUT') $('vOut').textContent=punchTime;
 
     updateActionButtons(action);
     setAtt('✓ PUNCH SUCCESSFUL\n'+(r.message||'Attendance saved')+
